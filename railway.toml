@@ -1,0 +1,13 @@
+# railway.toml — root level
+# Tells Railway how to build and run the API server.
+# Dashboard and portal have their own railway.json files in their folders.
+
+[build]
+builder = "nixpacks"
+buildCommand = "cd server && npm install"
+
+[deploy]
+startCommand = "cd server && node index.js"
+healthcheckPath = "/health"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
