@@ -5,9 +5,51 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import pg from 'pg';
 
 import authRouter  from './routes/auth.js';
 import apiRouter   from './routes/index.js';
+
+// ─── Auto-migrate on startup ──────────────────────────────────────────────────
+async function runMigrations() {
+  const { Client } = pg;
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  });
+  try {
+    await client.connect();
+    console.log('Running migrations…');
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const schema = readFileSync(join(__dirname, '../001_schema.sql'), 'utf8');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    const { rows } = await client.query('SELECT version FROM schema_migrations');
+    const applied = new Set(rows.map(r => r.version));
+    if (!applied.has('001')) {
+      await client.query('BEGIN');
+      await client.query(schema);
+      await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', ['001']);
+      await client.query('COMMIT');
+      console.log('Migration 001 applied ✓');
+    } else {
+      console.log('Migrations already up to date ✓');
+    }
+  } catch (err) {
+    console.error('Migration error:', err.message);
+  } finally {
+    await client.end();
+  }
+}
+
+await runMigrations();
 
 const app  = express();
 const PORT = process.env.PORT ?? 4000;
