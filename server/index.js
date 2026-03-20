@@ -61,6 +61,36 @@ async function runMigrations() {
 }
 
 await runMigrations();
+async function runSeed() {
+  if (!process.env.SEED_EMAIL) return;
+  const { Client } = pg;
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  try {
+    await client.connect();
+    const { rows } = await client.query(
+      'SELECT id FROM operator_users WHERE email = $1',
+      [process.env.SEED_EMAIL]
+    );
+    if (rows.length > 0) { console.log('Operator already exists ✓'); return; }
+    const op = await client.query(
+      `INSERT INTO operators (name, email) VALUES ('PayOps', $1) RETURNING id`,
+      [process.env.SEED_EMAIL]
+    );
+    await client.query(
+      `INSERT INTO operator_users (operator_id, email, full_name, role) VALUES ($1, $2, 'Operator', 'operator')`,
+      [op.rows[0].id, process.env.SEED_EMAIL]
+    );
+    console.log('Operator account created ✓', process.env.SEED_EMAIL);
+  } catch(e) {
+    console.error('Seed error:', e.message);
+  } finally {
+    await client.end();
+  }
+}
+await runSeed();
 
 const app  = express();
 const PORT = process.env.PORT ?? 4000;
