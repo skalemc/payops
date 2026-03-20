@@ -19,22 +19,42 @@ CREATE EXTENSION IF NOT EXISTS "btree_gist";    -- date range exclusion
 -- Utility types
 -- ---------------------------------------------------------------------------
 
-CREATE TYPE residency_type AS ENUM ('citizen', 'pr1', 'pr2', 'pr3', 'ep', 'spass', 'wp', 'other');
-CREATE TYPE employment_status AS ENUM ('active', 'inactive', 'terminated', 'on_leave');
-CREATE TYPE client_status AS ENUM ('active', 'pending_setup', 'suspended', 'offboarded');
-CREATE TYPE payroll_run_status AS ENUM ('draft', 'computed', 'approved', 'paid', 'voided');
-CREATE TYPE payment_status AS ENUM ('pending', 'initiated', 'confirmed', 'failed');
-CREATE TYPE leave_type AS ENUM ('annual', 'medical', 'hospitalisation', 'maternity', 'paternity', 'childcare', 'npl', 'other');
-CREATE TYPE leave_status AS ENUM ('pending', 'approved', 'rejected', 'cancelled', 'withdrawn');
-CREATE TYPE claim_status AS ENUM ('pending', 'manager_approved', 'operator_approved', 'rejected', 'paid');
-CREATE TYPE document_type AS ENUM ('payslip', 'ir8a', 'cpf_submission', 'giro_file', 'payment_instruction', 'other');
-CREATE TYPE audit_action AS ENUM ('create', 'update', 'delete', 'approve', 'reject', 'lock', 'void', 'login', 'export');
+DO $$ BEGIN
+  CREATE TYPE residency_type AS ENUM ('citizen', 'pr1', 'pr2', 'pr3', 'ep', 'spass', 'wp', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE employment_status AS ENUM ('active', 'inactive', 'terminated', 'on_leave');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE client_status AS ENUM ('active', 'pending_setup', 'suspended', 'offboarded');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE payroll_run_status AS ENUM ('draft', 'computed', 'approved', 'paid', 'voided');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE payment_status AS ENUM ('pending', 'initiated', 'confirmed', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE leave_type AS ENUM ('annual', 'medical', 'hospitalisation', 'maternity', 'paternity', 'childcare', 'npl', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE leave_status AS ENUM ('pending', 'approved', 'rejected', 'cancelled', 'withdrawn');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE claim_status AS ENUM ('pending', 'manager_approved', 'operator_approved', 'rejected', 'paid');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE document_type AS ENUM ('payslip', 'ir8a', 'cpf_submission', 'giro_file', 'payment_instruction', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE audit_action AS ENUM ('create', 'update', 'delete', 'approve', 'reject', 'lock', 'void', 'login', 'export');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ---------------------------------------------------------------------------
 -- 1. OPERATORS
 --    The payroll service provider (you). One per deployment for now.
 -- ---------------------------------------------------------------------------
-CREATE TABLE operators (
+CREATE TABLE IF NOT EXISTS operators (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name            TEXT NOT NULL,
     email           TEXT NOT NULL UNIQUE,
@@ -51,7 +71,7 @@ CREATE TABLE operators (
 -- 2. OPERATOR USERS
 --    Staff accounts for the operator (you and any team members).
 -- ---------------------------------------------------------------------------
-CREATE TABLE operator_users (
+CREATE TABLE IF NOT EXISTS operator_users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     operator_id     UUID NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
     email           TEXT NOT NULL UNIQUE,
@@ -67,7 +87,7 @@ CREATE TABLE operator_users (
 -- 3. CLIENTS
 --    Each company you manage payroll for.
 -- ---------------------------------------------------------------------------
-CREATE TABLE clients (
+CREATE TABLE IF NOT EXISTS clients (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     operator_id     UUID NOT NULL REFERENCES operators(id) ON DELETE RESTRICT,
     name            TEXT NOT NULL,
@@ -106,7 +126,7 @@ CREATE TABLE clients (
 -- 4. CLIENT USERS
 --    HR/finance managers at the client company who have portal access.
 -- ---------------------------------------------------------------------------
-CREATE TABLE client_users (
+CREATE TABLE IF NOT EXISTS client_users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     email           TEXT NOT NULL UNIQUE,
@@ -121,7 +141,7 @@ CREATE TABLE client_users (
 -- ---------------------------------------------------------------------------
 -- 5. EMPLOYEES
 -- ---------------------------------------------------------------------------
-CREATE TABLE employees (
+CREATE TABLE IF NOT EXISTS employees (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
 
@@ -168,16 +188,16 @@ CREATE TABLE employees (
 );
 
 -- Partial index: active employees per client (most common query)
-CREATE INDEX idx_employees_client_active
+CREATE INDEX IF NOT EXISTS idx_employees_client_active
     ON employees (client_id)
     WHERE employment_status = 'active';
 
-CREATE INDEX idx_employees_work_email ON employees (work_email) WHERE work_email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_employees_work_email ON employees (work_email) WHERE work_email IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- 6. OTP / AUTH TOKENS  (passwordless login for employees and client users)
 -- ---------------------------------------------------------------------------
-CREATE TABLE auth_otps (
+CREATE TABLE IF NOT EXISTS auth_otps (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email           TEXT NOT NULL,
     otp_hash        TEXT NOT NULL,          -- bcrypt hash of the 6-digit code
@@ -188,14 +208,14 @@ CREATE TABLE auth_otps (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_auth_otps_email ON auth_otps (email);
+CREATE INDEX IF NOT EXISTS idx_auth_otps_email ON auth_otps (email);
 
 -- Auto-cleanup: expired OTPs older than 1 hour (handled by pg_cron or app job)
 
 -- ---------------------------------------------------------------------------
 -- 7. SESSIONS
 -- ---------------------------------------------------------------------------
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL,
     user_type       TEXT NOT NULL,          -- 'employee' | 'client_user' | 'operator_user'
@@ -207,13 +227,13 @@ CREATE TABLE sessions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_sessions_token ON sessions (token_hash) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions (token_hash) WHERE revoked_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- 8. PAYROLL PERIODS
 --    One row per client per month. Anchors all payroll activity.
 -- ---------------------------------------------------------------------------
-CREATE TABLE payroll_periods (
+CREATE TABLE IF NOT EXISTS payroll_periods (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     period_year     SMALLINT NOT NULL,      -- e.g. 2026
@@ -236,7 +256,7 @@ CREATE TABLE payroll_periods (
 -- 9. PAYROLL LINE ITEMS
 --    One row per employee per payroll period. The computed, locked record.
 -- ---------------------------------------------------------------------------
-CREATE TABLE payroll_line_items (
+CREATE TABLE IF NOT EXISTS payroll_line_items (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payroll_period_id   UUID NOT NULL REFERENCES payroll_periods(id) ON DELETE CASCADE,
     employee_id         UUID NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
@@ -284,14 +304,14 @@ CREATE TABLE payroll_line_items (
     UNIQUE (payroll_period_id, employee_id)
 );
 
-CREATE INDEX idx_payroll_lines_period ON payroll_line_items (payroll_period_id);
-CREATE INDEX idx_payroll_lines_employee ON payroll_line_items (employee_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_lines_period ON payroll_line_items (payroll_period_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_lines_employee ON payroll_line_items (employee_id);
 
 -- ---------------------------------------------------------------------------
 -- 10. PAYMENT INSTRUCTIONS
 --     One salary PI + one CPF PI per payroll period per client.
 -- ---------------------------------------------------------------------------
-CREATE TABLE payment_instructions (
+CREATE TABLE IF NOT EXISTS payment_instructions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payroll_period_id   UUID NOT NULL REFERENCES payroll_periods(id) ON DELETE CASCADE,
     client_id           UUID NOT NULL REFERENCES clients(id),
@@ -312,13 +332,13 @@ CREATE TABLE payment_instructions (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_pi_period ON payment_instructions (payroll_period_id);
-CREATE INDEX idx_pi_status ON payment_instructions (payment_status) WHERE payment_status != 'confirmed';
+CREATE INDEX IF NOT EXISTS idx_pi_period ON payment_instructions (payroll_period_id);
+CREATE INDEX IF NOT EXISTS idx_pi_status ON payment_instructions (payment_status) WHERE payment_status != 'confirmed';
 
 -- ---------------------------------------------------------------------------
 -- 11. PAYMENT INSTRUCTION LINE ITEMS (salary PI — one row per employee)
 -- ---------------------------------------------------------------------------
-CREATE TABLE payment_instruction_lines (
+CREATE TABLE IF NOT EXISTS payment_instruction_lines (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payment_instruction_id  UUID NOT NULL REFERENCES payment_instructions(id) ON DELETE CASCADE,
     employee_id             UUID NOT NULL REFERENCES employees(id),
@@ -334,7 +354,7 @@ CREATE TABLE payment_instruction_lines (
 -- 12. LEAVE ENTITLEMENTS
 --     Annual snapshot per employee per year — EA statutory + any company extras.
 -- ---------------------------------------------------------------------------
-CREATE TABLE leave_entitlements (
+CREATE TABLE IF NOT EXISTS leave_entitlements (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_id     UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
     client_id       UUID NOT NULL REFERENCES clients(id),
@@ -352,7 +372,7 @@ CREATE TABLE leave_entitlements (
 -- ---------------------------------------------------------------------------
 -- 13. LEAVE APPLICATIONS
 -- ---------------------------------------------------------------------------
-CREATE TABLE leave_applications (
+CREATE TABLE IF NOT EXISTS leave_applications (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_id     UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
     client_id       UUID NOT NULL REFERENCES clients(id),
@@ -383,12 +403,12 @@ CREATE TABLE leave_applications (
     CONSTRAINT positive_days CHECK (days > 0)
 );
 
-CREATE INDEX idx_leave_employee ON leave_applications (employee_id);
-CREATE INDEX idx_leave_period ON leave_applications (payroll_period_id) WHERE payroll_period_id IS NOT NULL;
-CREATE INDEX idx_leave_pending ON leave_applications (client_id, status) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_leave_employee ON leave_applications (employee_id);
+CREATE INDEX IF NOT EXISTS idx_leave_period ON leave_applications (payroll_period_id) WHERE payroll_period_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_leave_pending ON leave_applications (client_id, status) WHERE status = 'pending';
 
 -- Prevent overlapping approved leave for same employee
-CREATE EXTENSION IF NOT EXISTS btree_gist;
+-- btree_gist already loaded above
 ALTER TABLE leave_applications ADD CONSTRAINT no_overlapping_leave
     EXCLUDE USING GIST (
         employee_id WITH =,
@@ -398,7 +418,7 @@ ALTER TABLE leave_applications ADD CONSTRAINT no_overlapping_leave
 -- ---------------------------------------------------------------------------
 -- 14. EXPENSE CLAIM CATEGORIES (client-configurable)
 -- ---------------------------------------------------------------------------
-CREATE TABLE claim_categories (
+CREATE TABLE IF NOT EXISTS claim_categories (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id   UUID REFERENCES clients(id) ON DELETE CASCADE,   -- NULL = system-wide
     name        TEXT NOT NULL,
@@ -417,12 +437,13 @@ INSERT INTO claim_categories (name, requires_receipt) VALUES
     ('Client Gifts',            true),
     ('Stationery & Supplies',   true),
     ('Telecommunications',      false),
-    ('Other',                   true);
+    ('Other',                   true)
+    ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- 15. EXPENSE CLAIMS
 -- ---------------------------------------------------------------------------
-CREATE TABLE expense_claims (
+CREATE TABLE IF NOT EXISTS expense_claims (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_id     UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
     client_id       UUID NOT NULL REFERENCES clients(id),
@@ -456,14 +477,14 @@ CREATE TABLE expense_claims (
     CONSTRAINT positive_amount CHECK (amount > 0)
 );
 
-CREATE INDEX idx_claims_employee ON expense_claims (employee_id);
-CREATE INDEX idx_claims_pending ON expense_claims (client_id, status) WHERE status IN ('pending','manager_approved');
-CREATE INDEX idx_claims_payroll ON expense_claims (payroll_period_id) WHERE payroll_period_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_claims_employee ON expense_claims (employee_id);
+CREATE INDEX IF NOT EXISTS idx_claims_pending ON expense_claims (client_id, status) WHERE status IN ('pending','manager_approved');
+CREATE INDEX IF NOT EXISTS idx_claims_payroll ON expense_claims (payroll_period_id) WHERE payroll_period_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- 16. DOCUMENTS (payslips, CPF submission files, GIRO files, IR8A)
 -- ---------------------------------------------------------------------------
-CREATE TABLE documents (
+CREATE TABLE IF NOT EXISTS documents (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     employee_id     UUID REFERENCES employees(id) ON DELETE SET NULL,  -- NULL for bulk docs
@@ -479,16 +500,16 @@ CREATE TABLE documents (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_docs_client ON documents (client_id);
-CREATE INDEX idx_docs_employee ON documents (employee_id) WHERE employee_id IS NOT NULL;
-CREATE INDEX idx_docs_period ON documents (payroll_period_id) WHERE payroll_period_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_docs_client ON documents (client_id);
+CREATE INDEX IF NOT EXISTS idx_docs_employee ON documents (employee_id) WHERE employee_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_docs_period ON documents (payroll_period_id) WHERE payroll_period_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- 17. CPF RATE SNAPSHOTS
 --     Stores the CPF Board rate table at a point in time.
 --     Allows the engine to use historically correct rates for backdated runs.
 -- ---------------------------------------------------------------------------
-CREATE TABLE cpf_rate_snapshots (
+CREATE TABLE IF NOT EXISTS cpf_rate_snapshots (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     effective_from  DATE NOT NULL,
     effective_to    DATE,                   -- NULL = currently active
@@ -529,13 +550,14 @@ VALUES
     ('2026-01-01','pr2',     36, 55,  800000, 10200000, 0.1500, 0.0800, NULL,   NULL,   NULL),
     ('2026-01-01','pr2',     56, 60,  800000, 10200000, 0.0750, 0.0750, NULL,   NULL,   NULL),
     ('2026-01-01','pr2',     61, 65,  800000, 10200000, 0.0500, 0.0650, NULL,   NULL,   NULL),
-    ('2026-01-01','pr2',     66, NULL,800000, 10200000, 0.0500, 0.0650, NULL,   NULL,   NULL);
+    ('2026-01-01','pr2',     66, NULL,800000, 10200000, 0.0500, 0.0650, NULL,   NULL,   NULL)
+    ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- 18. AUDIT LOG
 --     Immutable log of every significant action. Never updated, never deleted.
 -- ---------------------------------------------------------------------------
-CREATE TABLE audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     id              BIGSERIAL PRIMARY KEY,
     action          audit_action NOT NULL,
     table_name      TEXT NOT NULL,
@@ -553,14 +575,14 @@ CREATE TABLE audit_log (
 );
 
 -- Partition audit_log by month for performance (optional, add later)
-CREATE INDEX idx_audit_client   ON audit_log (client_id, created_at DESC) WHERE client_id IS NOT NULL;
-CREATE INDEX idx_audit_actor    ON audit_log (actor_id, created_at DESC)  WHERE actor_id IS NOT NULL;
-CREATE INDEX idx_audit_record   ON audit_log (table_name, record_id)      WHERE record_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_audit_client   ON audit_log (client_id, created_at DESC) WHERE client_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_audit_actor    ON audit_log (actor_id, created_at DESC)  WHERE actor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_audit_record   ON audit_log (table_name, record_id)      WHERE record_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- 19. NOTIFICATIONS (in-app + email queue)
 -- ---------------------------------------------------------------------------
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     recipient_id    UUID NOT NULL,
     recipient_type  TEXT NOT NULL,      -- 'employee' | 'client_user' | 'operator_user'
@@ -575,7 +597,7 @@ CREATE TABLE notifications (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_notif_recipient ON notifications (recipient_id, read_at) WHERE read_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notif_recipient ON notifications (recipient_id, read_at) WHERE read_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- 20. ROW-LEVEL SECURITY (RLS)
@@ -684,7 +706,7 @@ END $$;
 -- ---------------------------------------------------------------------------
 
 -- Active employees with their current month CPF breakdown
-CREATE VIEW v_employee_payroll_summary AS
+CREATE OR REPLACE VIEW v_employee_payroll_summary AS
 SELECT
     e.id AS employee_id,
     e.client_id,
@@ -701,7 +723,7 @@ FROM employees e
 WHERE e.employment_status = 'active';
 
 -- Payroll period totals (operator dashboard metrics)
-CREATE VIEW v_payroll_period_totals AS
+CREATE OR REPLACE VIEW v_payroll_period_totals AS
 SELECT
     pp.id AS payroll_period_id,
     pp.client_id,
@@ -722,7 +744,7 @@ LEFT JOIN payroll_line_items pli ON pli.payroll_period_id = pp.id
 GROUP BY pp.id, pp.client_id, pp.period_year, pp.period_month, pp.status, pp.pay_date;
 
 -- Leave balance per employee per year
-CREATE VIEW v_leave_balances AS
+CREATE OR REPLACE VIEW v_leave_balances AS
 SELECT
     le.employee_id,
     le.client_id,
@@ -745,8 +767,8 @@ GROUP BY le.id, le.employee_id, le.client_id, le.leave_year, le.leave_type,
 -- ---------------------------------------------------------------------------
 -- Schema version tracking
 -- ---------------------------------------------------------------------------
-CREATE TABLE schema_migrations (
+CREATE TABLE IF NOT EXISTS schema_migrations (
     version     TEXT PRIMARY KEY,
     applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-INSERT INTO schema_migrations (version) VALUES ('001');
+INSERT INTO schema_migrations (version) VALUES ('001') ON CONFLICT DO NOTHING;
