@@ -61,35 +61,42 @@ async function runMigrations() {
 }
 
 await runMigrations();
+
+// ─── Auto-seed operator account ───────────────────────────────────────────────
 async function runSeed() {
-  if (!process.env.SEED_EMAIL) return;
+  const email = process.env.SEED_EMAIL;
+  if (!email) return;
   const { Client } = pg;
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   });
   try {
     await client.connect();
     const { rows } = await client.query(
-      'SELECT id FROM operator_users WHERE email = $1',
-      [process.env.SEED_EMAIL]
+      'SELECT id FROM operator_users WHERE email = $1', [email]
     );
-    if (rows.length > 0) { console.log('Operator already exists ✓'); return; }
+    if (rows.length > 0) {
+      console.log('Operator account already exists ✓');
+      return;
+    }
     const op = await client.query(
       `INSERT INTO operators (name, email) VALUES ('PayOps', $1) RETURNING id`,
-      [process.env.SEED_EMAIL]
+      [email]
     );
     await client.query(
-      `INSERT INTO operator_users (operator_id, email, full_name, role) VALUES ($1, $2, 'Operator', 'operator')`,
-      [op.rows[0].id, process.env.SEED_EMAIL]
+      `INSERT INTO operator_users (operator_id, email, full_name, role)
+       VALUES ($1, $2, 'Operator', 'operator')`,
+      [op.rows[0].id, email]
     );
-    console.log('Operator account created ✓', process.env.SEED_EMAIL);
-  } catch(e) {
+    console.log('Operator account created ✓', email);
+  } catch (e) {
     console.error('Seed error:', e.message);
   } finally {
     await client.end();
   }
 }
+
 await runSeed();
 
 const app  = express();
