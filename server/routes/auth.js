@@ -15,10 +15,15 @@ function generateOTP() {
 // Simple email send (swap for real provider in production)
 async function sendOTPEmail(email, otp, userType) {
   // In production: use nodemailer with Sendgrid/SES
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[DEV] OTP for ${email} (${userType}): ${otp}`);
+if (process.env.NODE_ENV !== 'production' || process.env.FORCE_LOG_OTP === 'true') {
+    console.log(`[OTP] ${email}: ${otp}`);
     return;
-  }
+}
+```
+
+Commit → Railway redeploys → send the OTP request in Hoppscotch again → check Railway Deploy Logs immediately for a line like:
+```
+[OTP] your@email.com: 123456
   // TODO: nodemailer send
 }
 
