@@ -21,13 +21,11 @@ pool.on('error', (err) => {
 // Every query sets app.current_*_id so RLS policies can use it.
 export async function query(sql, params = [], ctx = {}) {
   const client = await pool.connect();
+  const sets = [];
+  if (ctx.operatorId)  sets.push(`SET LOCAL app.current_operator_id  = '${ctx.operatorId}'`);
+  if (ctx.clientId)    sets.push(`SET LOCAL app.current_client_id     = '${ctx.clientId}'`);
+  if (ctx.employeeId)  sets.push(`SET LOCAL app.current_employee_id   = '${ctx.employeeId}'`);
   try {
-    // Set RLS context variables for this transaction
-    const sets = [];
-    if (ctx.operatorId)  sets.push(`SET LOCAL app.current_operator_id  = '${ctx.operatorId}'`);
-    if (ctx.clientId)    sets.push(`SET LOCAL app.current_client_id     = '${ctx.clientId}'`);
-    if (ctx.employeeId)  sets.push(`SET LOCAL app.current_employee_id   = '${ctx.employeeId}'`);
-
     if (sets.length) {
       await client.query('BEGIN');
       for (const s of sets) await client.query(s);
