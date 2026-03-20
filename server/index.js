@@ -24,7 +24,18 @@ async function runMigrations() {
     await client.connect();
     console.log('Running migrations…');
     const __dirname = dirname(fileURLToPath(import.meta.url));
-    const schema = readFileSync(join(__dirname, '../001_schema.sql'), 'utf8');
+    // Schema is copied into the server folder during build
+    const candidates = [
+      join(__dirname, '001_schema.sql'),       // same dir as index.js
+      join(__dirname, '../001_schema.sql'),     // repo root fallback
+      '/app/001_schema.sql',
+    ];
+    let schema = null;
+    for (const p of candidates) {
+      try { schema = readFileSync(p, 'utf8'); console.log('Schema found at:', p); break; }
+      catch {}
+    }
+    if (!schema) throw new Error('001_schema.sql not found in any expected location');
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version TEXT PRIMARY KEY,
