@@ -102,6 +102,9 @@ await runSeed();
 const app  = express();
 const PORT = process.env.PORT ?? 4000;
 
+// Trust Railway's proxy (fixes rate limiter X-Forwarded-For error)
+app.set('trust proxy', 1);
+
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: {
